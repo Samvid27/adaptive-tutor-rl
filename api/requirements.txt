@@ -1,0 +1,16 @@
+# Core -- required to run the API and training scripts at all
+fastapi
+uvicorn[standard]
+pydantic
+numpy
+gymnasium
+stable-baselines3
+openai          # used as an OpenAI-compatible client against Cerebras, not OpenAI itself
+python-multipart  # required by FastAPI for the file-upload endpoint (materials/upload)
+
+# Optional -- "questions_from_material" tab
+# Without these, PDF upload and semantic retrieval are unavailable and
+# the app falls back automatically: .txt/.md uploads still work, and
+# retrieval falls back to plain keyword matching instead of embeddings.
+pypdf                  # lets teachers upload .pdf material, not just .txt/.md
+sentence-transformers  # real embeddings (all-MiniLM-L6-v2) for semantic retrieval
