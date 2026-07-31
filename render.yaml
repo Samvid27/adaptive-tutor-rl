@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: adaptive-tutor-rl
+    runtime: python
+    buildCommand: pip install -r api/requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: CEREBRAS_API_KEY
+        sync: false  # you'll be prompted to enter this in the Render dashboard
+      - key: PYTHON_VERSION
+        value: "3.12.3"
