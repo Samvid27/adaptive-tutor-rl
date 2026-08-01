@@ -40,9 +40,9 @@ app.add_middleware(
 # Serve the frontend from this same app/origin -- avoids CORS and
 # "wrong API_BASE" issues entirely once deployed, since the page and
 # the API it calls are then always the same host. Local dev can still
-# open frontend/index_1.html directly if preferred (see API_BASE
+# open frontend/index.html directly if preferred (see API_BASE
 # auto-detection in that file).
-_FRONTEND_PATH = os.path.join(os.path.dirname(__file__), "..", "frontend", "index_1.html")
+_FRONTEND_PATH = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
 
 
 @app.get("/", include_in_schema=False)
@@ -277,18 +277,12 @@ def _get_cerebras_client() -> OpenAI:
         _cerebras_client = OpenAI(base_url="https://api.cerebras.ai/v1", api_key=api_key)
     return _cerebras_client
 
-# Lazy-load trained models on first request (not at import time).
-# Loading PyTorch + 3 model files takes 30-60s which exceeds Render's
-# port-scan timeout if done before the server starts listening.
-MODELS = {}
-
-
-def _get_models():
-    if not MODELS:
-        MODELS["ppo"] = PPO.load("training/ppo_tutor_agent")
-        MODELS["dqn"] = DQN.load("training/dqn_tutor_agent")
-        MODELS["a2c"] = A2C.load("training/a2c_tutor_agent")
-    return MODELS
+# Load all trained models once at startup, not per-request.
+MODELS = {
+    "ppo": PPO.load("training/ppo_tutor_agent"),
+    "dqn": DQN.load("training/dqn_tutor_agent"),
+    "a2c": A2C.load("training/a2c_tutor_agent"),
+}
 
 
 def _step_record(env, topic=None, difficulty=None, correct=None):
@@ -331,9 +325,8 @@ def run_heuristic(seed: int):
     return steps
 
 
-def make_model_runner(policy_name):
+def make_model_runner(model):
     def _run(seed: int):
-        model = _get_models()[policy_name]
         env = AdaptiveTutorEnv(session_length=SESSION_LENGTH, n_active_topics=N_DEMO_TOPICS)
         obs, info = env.reset(seed=seed)
         steps = [_step_record(env)]
@@ -365,9 +358,9 @@ def run_oracle(seed: int):
 POLICY_RUNNERS = {
     "random": run_random,
     "heuristic": run_heuristic,
-    "ppo": make_model_runner("ppo"),
-    "dqn": make_model_runner("dqn"),
-    "a2c": make_model_runner("a2c"),
+    "ppo": make_model_runner(MODELS["ppo"]),
+    "dqn": make_model_runner(MODELS["dqn"]),
+    "a2c": make_model_runner(MODELS["a2c"]),
     "oracle": run_oracle,
 }
 
@@ -475,7 +468,7 @@ def _recommend(session, forced_topic: int | None = None, forced_difficulty_label
             difficulty = _nearest_difficulty(session["est_mastery"][forced_topic])
         return forced_topic, difficulty
 
-    model = _get_models()[session["policy"]]
+    model = MODELS[session["policy"]]
     obs = np.array(session["est_mastery"], dtype=np.float32)  # full padded length-MAX_TOPICS vector
     action, _ = model.predict(obs, deterministic=True)
     topic, difficulty = decode_action(int(action))
@@ -526,8 +519,8 @@ def _session_summary(session, session_id):
 
 @app.post("/session/start")
 def start_session(req: StartSessionRequest):
-    if req.policy not in _get_models():
-        raise HTTPException(status_code=400, detail=f"Unknown policy '{req.policy}'. Choose from {list(_get_models())}")
+    if req.policy not in MODELS:
+        raise HTTPException(status_code=400, detail=f"Unknown policy '{req.policy}'. Choose from {list(MODELS)}")
 
     if req.student_id is not None:
         conn = _get_db()
@@ -890,7 +883,10 @@ async def upload_material(file: UploadFile = File(...)):
     """Upload a .txt/.md/.pdf file of teaching material to generate
     questions from later. Saved to the same local database as the
     student roster, so it survives server restarts."""
+    MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB -- generous for a chapter/worksheet, cheap insurance against abuse
     raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large -- max {MAX_UPLOAD_BYTES // (1024*1024)}MB.")
     filename = file.filename or "document"
 
     if filename.lower().endswith(".pdf"):
