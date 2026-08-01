@@ -2,7 +2,7 @@
 
 **An adaptive tutoring system where a reinforcement-learning agent decides what topic and difficulty to teach a student next — trained on a simulated student, usable live with a real one.**
 
-[Report a bug](https://github.com/Samvid27/adaptive-tutor-rl/issues)
+[Live Demo](https://adaptive-tutor-rl-production.up.railway.app/) · [Report a bug](https://github.com/Samvid27/adaptive-tutor-rl/issues)
 
 ---
 
@@ -31,11 +31,12 @@ The fix: train on the student's true simulated learning gain (only knowable beca
 ## Architecture
 
 ```
-env/student.py       -- IRT-style synthetic student (hidden true ability + observable mastery estimate)
-env/tutor_env.py      -- Gymnasium environment, MAX_TOPICS=15 slots, randomized active-topic-count training
-training/             -- PPO / DQN / A2C training + evaluation scripts, baseline comparisons
-api/main.py            -- FastAPI backend: /simulate, /session/* (live mode + roster), /materials/* (RAG)
-frontend/index.html    -- Single-page frontend, all three tabs
+env/student.py    -- IRT-style synthetic student (hidden true ability + observable mastery estimate)
+env/tutor_env.py  -- Gymnasium environment, MAX_TOPICS=15 slots, randomized active-topic-count training
+training/         -- PPO / DQN / A2C training + evaluation scripts, baseline comparisons
+api/main.py       -- FastAPI backend: /simulate, /session/* (live mode + roster), /materials/* (RAG)
+index.html        -- Single-page frontend, all three tabs -- served directly by api/main.py
+                     at "/", so the whole app is one deployable unit, no separate frontend host
 ```
 
 ## Tech stack
@@ -44,44 +45,36 @@ frontend/index.html    -- Single-page frontend, all three tabs
 - **Backend**: FastAPI, SQLite (student roster + uploaded materials/embeddings)
 - **AI features**: Cerebras API (LLM-generated questions from uploaded material + session summaries)
 - **Frontend**: Vanilla HTML/JS, Chart.js — no build step
+- **Deployment**: Docker, Railway
 
 ## Running it locally
 
 ```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r api/requirements.txt
 ```
 
-Set your Cerebras API key (needed for the material-upload and AI-summary features):
-```bash
-# PowerShell
+Set your Cerebras API key (needed for the AI-summary and material-question features):
+```powershell
 $env:CEREBRAS_API_KEY = "your-key-here"
 ```
 
-**Terminal 1 — backend:**
+Then just:
 ```bash
-python -m uvicorn api.main:app --reload --port 8000
+uvicorn api.main:app --reload --port 8000
 ```
 
-**Terminal 2 — frontend:**
-```bash
-cd frontend
-python -m http.server 5500
-```
-
-Open `http://localhost:5500`.
+Open `http://localhost:8000` — this single server serves both the frontend and the API, so there's nothing else to run.
 
 ## Deployment
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Samvid27/adaptive-tutor-rl)
+Deployed on [Railway](https://railway.app) via the included `Dockerfile`. A couple of non-obvious things the Dockerfile/`railway.json` deal with, worth knowing if you fork this:
 
-The backend serves the frontend directly from `GET /`, so you only need **one service**:
+- **`torch` is installed as its own explicit step, from PyTorch's CPU-only wheel index** (`--index-url https://download.pytorch.org/whl/cpu`), *before* the rest of `requirements.txt`. A plain `pip install torch` defaults to the full CUDA build (800MB-2GB+ of `nvidia-*` packages) even though this project only ever runs tiny custom MLP models on CPU — that bloat was the actual cause of several early build failures on free-tier hosts.
+- **`railway.json` explicitly pins the Dockerfile builder.** Railway's auto-detection (Railpack) misidentified this repo as a static site on its own, which silently serves the frontend HTML via a static file server with zero Python running behind it — everything *looks* like it loads, but every API call fails. Forcing the Dockerfile builder bypasses that auto-detection entirely.
+- Set `CEREBRAS_API_KEY` under the service's **Variables** tab (never commit it to the repo).
 
-1. Click the button above (or go to [render.com](https://render.com) → **New** → **Blueprint** → connect this repo)
-2. Render reads the included `render.yaml` and sets up the service automatically
-3. Enter your `CEREBRAS_API_KEY` when prompted (needed for AI-generated questions and session summaries; the simulation tab works without it)
-4. Deploy — you'll get a URL like `https://adaptive-tutor-rl.onrender.com`
-
-**Known limitation:** on Render's free tier, the service spins down after 15 minutes of inactivity (~30-60s cold start), and the SQLite database resets on redeploy/restart (no persistent disk). Fine for a demo; a real deployment would use a managed Postgres instance or a paid persistent volume.
+**Known limitation:** Railway's free/trial tier doesn't include a persistent volume by default, so the SQLite roster/materials data can reset on a redeploy. Fine for a demo; a production version would move to a managed database or an attached persistent volume.
 
 ## Roadmap
 
@@ -92,6 +85,7 @@ Things a real tuition-teacher tool would need next, roughly in priority order:
 - Parent-facing progress reports (PDF/WhatsApp-friendly)
 - Teacher accounts/auth (currently single-tenant, no login)
 - Mobile-first redesign of the live tab specifically (this is meant to be used mid-session on a phone)
+- Semantic embeddings for material retrieval (`sentence-transformers`) — currently falls back to keyword matching in production to keep the deploy lean; works locally if installed
 
 ## License
 
