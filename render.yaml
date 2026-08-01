@@ -1,11 +1,10 @@
 services:
   - type: web
-    name: adaptive-tutor-rl
-    runtime: python
-    buildCommand: pip install -r api/requirements.txt
-    startCommand: PYTHONPATH=/opt/render/project/src uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    name: adaptive-tutor-api
+    env: python
+    plan: free
+    buildCommand: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r api/requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: CEREBRAS_API_KEY
-        sync: false  # you'll be prompted to enter this in the Render dashboard
-      - key: PYTHON_VERSION
-        value: "3.12.3"
+        sync: false   # set this manually in the Render dashboard -- never commit it

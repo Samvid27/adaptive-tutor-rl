@@ -1,3 +1,10 @@
+# NOTE: torch is intentionally NOT listed here. It must be installed
+# separately first with the CPU-only wheel index, or pip will pull the
+# full CUDA build (800MB-2GB+ of nvidia-* packages) which is almost
+# certainly what caused earlier build failures on free-tier hosts.
+# See the build command in render.yaml / README for the exact two-step
+# install this depends on.
+
 # Core -- required to run the API and training scripts at all
 fastapi
 uvicorn[standard]
@@ -12,5 +19,10 @@ python-multipart  # required by FastAPI for the file-upload endpoint (materials/
 # Without these, PDF upload and semantic retrieval are unavailable and
 # the app falls back automatically: .txt/.md uploads still work, and
 # retrieval falls back to plain keyword matching instead of embeddings.
-pypdf                  # lets teachers upload .pdf material, not just .txt/.md
-sentence-transformers  # real embeddings (all-MiniLM-L6-v2) for semantic retrieval
+#
+# Commented out for the FIRST deploy attempt, to keep the install small
+# and reduce the number of things that could go wrong at once. Once the
+# base app deploys successfully, uncomment these one at a time and
+# redeploy to confirm each still builds cleanly.
+# pypdf                  # lets teachers upload .pdf material, not just .txt/.md
+# sentence-transformers  # real embeddings (all-MiniLM-L6-v2) for semantic retrieval

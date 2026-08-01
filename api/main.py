@@ -277,12 +277,18 @@ def _get_cerebras_client() -> OpenAI:
         _cerebras_client = OpenAI(base_url="https://api.cerebras.ai/v1", api_key=api_key)
     return _cerebras_client
 
-# Load all trained models once at startup, not per-request.
-MODELS = {
-    "ppo": PPO.load("training/ppo_tutor_agent"),
-    "dqn": DQN.load("training/dqn_tutor_agent"),
-    "a2c": A2C.load("training/a2c_tutor_agent"),
-}
+# Lazy-load trained models on first request (not at import time).
+# Loading PyTorch + 3 model files takes 30-60s which exceeds Render's
+# port-scan timeout if done before the server starts listening.
+MODELS = {}
+
+
+def _get_models():
+    if not MODELS:
+        MODELS["ppo"] = PPO.load("training/ppo_tutor_agent")
+        MODELS["dqn"] = DQN.load("training/dqn_tutor_agent")
+        MODELS["a2c"] = A2C.load("training/a2c_tutor_agent")
+    return MODELS
 
 
 def _step_record(env, topic=None, difficulty=None, correct=None):
@@ -325,8 +331,9 @@ def run_heuristic(seed: int):
     return steps
 
 
-def make_model_runner(model):
+def make_model_runner(policy_name):
     def _run(seed: int):
+        model = _get_models()[policy_name]
         env = AdaptiveTutorEnv(session_length=SESSION_LENGTH, n_active_topics=N_DEMO_TOPICS)
         obs, info = env.reset(seed=seed)
         steps = [_step_record(env)]
@@ -358,9 +365,9 @@ def run_oracle(seed: int):
 POLICY_RUNNERS = {
     "random": run_random,
     "heuristic": run_heuristic,
-    "ppo": make_model_runner(MODELS["ppo"]),
-    "dqn": make_model_runner(MODELS["dqn"]),
-    "a2c": make_model_runner(MODELS["a2c"]),
+    "ppo": make_model_runner("ppo"),
+    "dqn": make_model_runner("dqn"),
+    "a2c": make_model_runner("a2c"),
     "oracle": run_oracle,
 }
 
@@ -468,7 +475,7 @@ def _recommend(session, forced_topic: int | None = None, forced_difficulty_label
             difficulty = _nearest_difficulty(session["est_mastery"][forced_topic])
         return forced_topic, difficulty
 
-    model = MODELS[session["policy"]]
+    model = _get_models()[session["policy"]]
     obs = np.array(session["est_mastery"], dtype=np.float32)  # full padded length-MAX_TOPICS vector
     action, _ = model.predict(obs, deterministic=True)
     topic, difficulty = decode_action(int(action))
@@ -519,8 +526,8 @@ def _session_summary(session, session_id):
 
 @app.post("/session/start")
 def start_session(req: StartSessionRequest):
-    if req.policy not in MODELS:
-        raise HTTPException(status_code=400, detail=f"Unknown policy '{req.policy}'. Choose from {list(MODELS)}")
+    if req.policy not in _get_models():
+        raise HTTPException(status_code=400, detail=f"Unknown policy '{req.policy}'. Choose from {list(_get_models())}")
 
     if req.student_id is not None:
         conn = _get_db()
