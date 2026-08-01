@@ -42,7 +42,7 @@ app.add_middleware(
 # the API it calls are then always the same host. Local dev can still
 # open frontend/index.html directly if preferred (see API_BASE
 # auto-detection in that file).
-_FRONTEND_PATH = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
+_FRONTEND_PATH = os.path.join(os.path.dirname(__file__), "..", "index.html")
 
 
 @app.get("/", include_in_schema=False)
